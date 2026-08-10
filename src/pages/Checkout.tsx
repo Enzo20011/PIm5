@@ -3,7 +3,9 @@ import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate, Link } from 'react-router-dom';
 import { orderService } from '../services/orderService';
+import { productService } from '../services/productService';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 
 export const Checkout = () => {
   const { items, total, clearCart } = useCart();
@@ -14,25 +16,34 @@ export const Checkout = () => {
 
   const handlePayment = async () => {
     if (!user) {
-      alert("Debes iniciar sesión para comprar");
+      toast.error("Debes iniciar sesión para comprar");
       navigate('/login');
       return;
     }
     
     setIsProcessing(true);
     try {
+      // 1. Crear Orden
       await orderService.createOrder({
         userId: user.uid,
         items,
         total,
         status: 'pending'
       });
-      alert("¡Orden generada con éxito!");
+
+      // 2. Descontar Stock de cada producto
+      await Promise.all(items.map(item => 
+        productService.updateProduct(item.id, { 
+          stock: Math.max(0, (item.stock || 0) - item.quantity) 
+        })
+      ));
+
+      toast.success("¡Orden generada con éxito!");
       clearCart();
-      navigate('/orders');
+      navigate('/profile');
     } catch (error) {
       console.error(error);
-      alert("Hubo un error procesando tu orden.");
+      toast.error("Hubo un error procesando tu orden.");
     } finally {
       setIsProcessing(false);
     }
@@ -40,36 +51,36 @@ export const Checkout = () => {
 
   if (items.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <h2 className="text-2xl font-bold text-gray-700 mb-4">Tu carrito está vacío</h2>
-        <Link to="/" className="text-brand-600 hover:underline">Volver a la tienda</Link>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center p-4">
+        <h2 className="text-2xl font-bold text-gray-700 dark:text-gray-300 mb-4">Tu carrito está vacío</h2>
+        <Link to="/" className="text-brand-600 dark:text-brand-400 hover:underline">Volver a la tienda</Link>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8">Resumen de Compra</h2>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">Resumen de Compra</h2>
         
         <div className="space-y-4 mb-8">
           {items.map(item => (
-            <div key={item.id} className="flex items-center justify-between border-b pb-4">
+            <div key={item.id} className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-4">
               <div className="flex items-center space-x-4">
                 <img src={item.imageUrl} alt={item.name} className="w-16 h-16 object-cover rounded" />
                 <div>
-                  <h3 className="font-medium">{item.name}</h3>
-                  <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
+                  <h3 className="font-medium text-gray-900 dark:text-white">{item.name}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Cantidad: {item.quantity}</p>
                 </div>
               </div>
-              <p className="font-semibold">${item.price * item.quantity}</p>
+              <p className="font-semibold text-gray-900 dark:text-white">${item.price * item.quantity}</p>
             </div>
           ))}
         </div>
 
-        <div className="flex justify-between items-center border-t pt-6 mb-8">
-          <span className="text-xl font-bold text-gray-900">Total a pagar:</span>
-          <span className="text-3xl font-black text-brand-600">${total}</span>
+        <div className="flex justify-between items-center border-t border-gray-100 dark:border-gray-700 pt-6 mb-8">
+          <span className="text-xl font-bold text-gray-900 dark:text-white">Total a pagar:</span>
+          <span className="text-3xl font-black text-brand-600 dark:text-brand-400">${total}</span>
         </div>
 
         <button 

@@ -1,5 +1,6 @@
 import React, { createContext, useReducer, useContext, ReactNode } from 'react';
 import type { Product } from '../types';
+import toast from 'react-hot-toast';
 
 export interface CartItem extends Product {
   quantity: number;
@@ -71,7 +72,15 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   return (
     <CartContext.Provider value={{
       ...state,
-      addItem: (product) => dispatch({ type: 'ADD_ITEM', payload: product }),
+      addItem: (product) => {
+        const existing = state.items.find(item => item.id === product.id);
+        if (existing) {
+          toast.success(`Añadiste otro "${product.name}" al carrito`, { icon: '🛒' });
+        } else {
+          toast.success(`"${product.name}" añadido al carrito`, { icon: '🛒' });
+        }
+        dispatch({ type: 'ADD_ITEM', payload: product });
+      },
       removeItem: (id) => dispatch({ type: 'REMOVE_ITEM', payload: id }),
       updateQuantity: (id, quantity) => dispatch({ type: 'UPDATE_QUANTITY', payload: { id, quantity } }),
       clearCart: () => dispatch({ type: 'CLEAR_CART' })

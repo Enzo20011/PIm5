@@ -8,6 +8,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
+import toast from 'react-hot-toast';
+import { FiEdit2, FiTrash2 } from 'react-icons/fi';
 
 export const AdminDashboard = () => {
   const { user, logout } = useAuth();
@@ -27,7 +29,9 @@ export const AdminDashboard = () => {
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [stock, setStock] = useState('10');
   const [file, setFile] = useState<File | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeTab === 'products') loadProducts();
@@ -70,13 +74,25 @@ export const AdminDashboard = () => {
   const handleDelete = async (id: string) => {
     if (confirm('¿Eliminar producto?')) {
       await productService.deleteProduct(id);
+      toast.success('Producto eliminado');
       loadProducts();
     }
   };
 
-  const handleCreateProduct = async (e: React.FormEvent) => {
+  const handleEdit = (product: Product) => {
+    setEditingId(product.id);
+    setName(product.name);
+    setPrice(product.price.toString());
+    setDescription(product.description);
+    setCategory(product.category);
+    setStock(product.stock?.toString() || '10');
+    setFile(null); // Obligamos a mantener la imagen anterior o subir una nueva
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !price || !category) return alert('Faltan campos obligatorios');
+    if (!name || !price || !category) return toast.error('Faltan campos obligatorios');
     setIsCreating(true);
 
     try {
@@ -115,23 +131,34 @@ export const AdminDashboard = () => {
         // 3. Obtenemos la URL pública final
         imageUrl = `https://${import.meta.env.VITE_S3_BUCKET_NAME}.s3.${import.meta.env.VITE_AWS_REGION}.amazonaws.com/${key}`;
         console.log("Subida exitosa:", imageUrl);
+      } else if (editingId) {
+        // Mantenemos la imagen existente si estamos editando y no hay archivo nuevo
+        const existingProduct = products.find(p => p.id === editingId);
+        if (existingProduct) imageUrl = existingProduct.imageUrl;
       }
 
-      await productService.createProduct({
+      const productData = {
         name,
         description,
         price: Number(price),
         category,
         imageUrl,
-        stock: 100
-      });
+        stock: Number(stock)
+      };
 
-      alert('Producto creado exitosamente');
-      setName(''); setPrice(''); setDescription(''); setCategory(''); setFile(null);
+      if (editingId) {
+        await productService.updateProduct(editingId, productData);
+        toast.success('Producto actualizado exitosamente');
+      } else {
+        await productService.createProduct(productData);
+        toast.success('Producto creado exitosamente');
+      }
+
+      setName(''); setPrice(''); setDescription(''); setCategory(''); setStock('10'); setFile(null); setEditingId(null);
       loadProducts();
     } catch (error: any) {
       console.error(error);
-      alert(`Error creando producto: ${error?.message || 'Error desconocido'}`);
+      toast.error(`Error guardando producto: ${error?.message || 'Error desconocido'}`);
     } finally {
       setIsCreating(false);
     }
@@ -152,17 +179,8 @@ export const AdminDashboard = () => {
         </nav>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        <header className="bg-gray-800 p-4 flex justify-end items-center border-b border-gray-700 shadow-sm">
-          <div className="flex items-center space-x-4">
-            <span className="text-sm">Admin: {user?.email}</span>
-            <Link to="/" className="text-sm text-brand-400 hover:text-brand-300">Ir a la Tienda</Link>
-            <button onClick={logout} className="text-sm bg-gray-700 px-3 py-1 rounded hover:bg-gray-600 transition">Salir</button>
-          </div>
-        </header>
-
-        <div className="p-8 flex-1 overflow-y-auto">
+      {/* Contenido Principal */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
           {activeTab === 'analytics' ? (
             <div className="max-w-5xl mx-auto">
               <h2 className="text-2xl font-semibold mb-6">Métricas de Ventas</h2>
@@ -199,16 +217,22 @@ export const AdminDashboard = () => {
             <div className="max-w-5xl mx-auto space-y-8">
               
               <section className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg">
-              <h2 className="text-xl font-semibold mb-4 text-white">Añadir Nuevo Producto</h2>
-              <form onSubmit={handleCreateProduct} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <h2 className="text-xl font-semibold mb-4 text-white">{editingId ? 'Editar Producto' : 'Añadir Nuevo Producto'}</h2>
+              <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del producto" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
                 <input value={price} onChange={e => setPrice(e.target.value)} type="number" placeholder="Precio ($)" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
                 <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Categoría" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
-                <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="bg-gray-700 border-gray-600 rounded p-1.5 text-white w-full" accept="image/*" />
-                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full md:col-span-2 focus:ring-brand-500" rows={3}></textarea>
-                <div className="md:col-span-2 flex justify-end">
+                <input value={stock} onChange={e => setStock(e.target.value)} type="number" placeholder="Stock" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
+                <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="bg-gray-700 border-gray-600 rounded p-1.5 text-white w-full md:col-span-2" accept="image/*" />
+                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full md:col-span-3 focus:ring-brand-500" rows={3}></textarea>
+                <div className="md:col-span-3 flex justify-end space-x-4">
+                  {editingId && (
+                    <button type="button" onClick={() => { setEditingId(null); setName(''); setPrice(''); setDescription(''); setCategory(''); setStock('10'); setFile(null); }} className="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded font-medium transition">
+                      Cancelar
+                    </button>
+                  )}
                   <button disabled={isCreating} type="submit" className="bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 rounded font-medium disabled:opacity-50 transition">
-                    {isCreating ? 'Creando...' : 'Crear Producto'}
+                    {isCreating ? 'Guardando...' : (editingId ? 'Actualizar Producto' : 'Crear Producto')}
                   </button>
                 </div>
               </form>
@@ -236,8 +260,15 @@ export const AdminDashboard = () => {
                         </div>
                         <p className="text-sm text-gray-400 mb-4 line-clamp-2">{p.description}</p>
                         <div className="flex justify-between items-center">
-                          <span className="text-xs bg-gray-700 px-2 py-1 rounded-full">{p.category}</span>
-                          <button onClick={() => handleDelete(p.id)} className="text-sm text-red-400 hover:text-red-300">Eliminar</button>
+                          <span className="text-xs bg-gray-700 px-2 py-1 rounded-full">{p.category} | Stock: {p.stock || 0}</span>
+                          <div className="flex space-x-3">
+                            <button onClick={() => handleEdit(p)} className="text-sm text-blue-400 hover:text-blue-300" title="Editar">
+                              <FiEdit2 />
+                            </button>
+                            <button onClick={() => handleDelete(p.id)} className="text-sm text-red-400 hover:text-red-300" title="Eliminar">
+                              <FiTrash2 />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -293,7 +324,6 @@ export const AdminDashboard = () => {
               )}
             </div>
           )}
-        </div>
       </main>
     </div>
   );
