@@ -5,9 +5,6 @@ import { productService } from '../services/productService';
 import { orderService } from '../services/orderService';
 import type { Product, Order } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import { FiEdit2, FiTrash2 } from 'react-icons/fi';
 
@@ -99,38 +96,25 @@ export const AdminDashboard = () => {
       let imageUrl = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&q=80'; // Fallback Placeholder
 
       if (file) {
-        console.log("Subiendo archivo a S3 de forma nativa...");
-        const s3Client = new S3Client({
-          region: import.meta.env.VITE_AWS_REGION || 'sa-east-1',
-          credentials: {
-            accessKeyId: import.meta.env.VITE_AWS_ACCESS_KEY_ID,
-            secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY,
-          }
+        // 1. Pedimos una URL prefirmada a la función serverless (las credenciales de AWS quedan en el servidor)
+        const presignRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, filetype: file.type })
         });
 
-        const uniqueId = uuidv4();
-        const extension = file.name.split('.').pop();
-        const key = `products/${uniqueId}.${extension}`;
+        if (!presignRes.ok) throw new Error('No se pudo generar la URL de subida');
+        const { url: presignedUrl, publicUrl } = await presignRes.json();
 
-        const command = new PutObjectCommand({
-          Bucket: import.meta.env.VITE_S3_BUCKET_NAME,
-          Key: key,
-          ContentType: file.type,
-        });
-
-        // 1. Generamos la URL prefirmada
-        const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 });
-        
-        // 2. Subimos el archivo a esa URL con PUT
+        // 2. Subimos el archivo directamente a S3 con esa URL
         await fetch(presignedUrl, {
           method: 'PUT',
           body: file,
           headers: { 'Content-Type': file.type }
         });
 
-        // 3. Obtenemos la URL pública final
-        imageUrl = `https://${import.meta.env.VITE_S3_BUCKET_NAME}.s3.${import.meta.env.VITE_AWS_REGION}.amazonaws.com/${key}`;
-        console.log("Subida exitosa:", imageUrl);
+        // 3. Guardamos la URL pública final
+        imageUrl = publicUrl;
       } else if (editingId) {
         // Mantenemos la imagen existente si estamos editando y no hay archivo nuevo
         const existingProduct = products.find(p => p.id === editingId);

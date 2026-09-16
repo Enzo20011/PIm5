@@ -79,7 +79,7 @@ export const ProductDetail = () => {
               <p className="text-3xl font-black text-brand-600 dark:text-brand-400 mb-6">${product.price}</p>
               
               <p className="text-gray-600 dark:text-gray-300 text-lg leading-relaxed mb-8">
-                {product.description || "Este producto no tiene una descripción detallada, pero te aseguramos que cuenta con la mejor calidad garantizada por Patagonix Tech."}
+                {product.description || "Este producto no tiene una descripción detallada, pero te aseguramos que cuenta con la mejor calidad garantizada por Patagonix."}
               </p>
 
               <div className="mt-auto">

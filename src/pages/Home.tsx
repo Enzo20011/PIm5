@@ -23,20 +23,20 @@ export const Home = () => {
   const [categories, setCategories] = useState<string[]>(['All']);
 
   useEffect(() => {
-    loadProducts();
+    productService.getAllCategories().then(cats => setCategories(['All', ...cats])).catch(console.error);
   }, []);
 
-  const loadProducts = async () => {
+  useEffect(() => {
+    loadProducts(categoryFilter);
+  }, [categoryFilter]);
+
+  const loadProducts = async (category: string) => {
     setLoading(true);
     try {
-      const { products: fetched, lastDoc: fetchedLastDoc } = await productService.getProducts(8);
+      const { products: fetched, lastDoc: fetchedLastDoc } = await productService.getProducts(8, undefined, category);
       setProducts(fetched);
       setLastDoc(fetchedLastDoc);
       setHasMore(fetched.length === 8);
-      
-      // Extraer categorías únicas
-      const uniqueCats = Array.from(new Set(fetched.map(p => p.category)));
-      setCategories(['All', ...uniqueCats]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -48,14 +48,10 @@ export const Home = () => {
     if (!lastDoc) return;
     setLoadingMore(true);
     try {
-      const { products: fetched, lastDoc: fetchedLastDoc } = await productService.getProducts(8, lastDoc);
+      const { products: fetched, lastDoc: fetchedLastDoc } = await productService.getProducts(8, lastDoc, categoryFilter);
       setProducts(prev => [...prev, ...fetched]);
       setLastDoc(fetchedLastDoc);
       setHasMore(fetched.length === 8);
-      
-      // Actualizar categorías
-      const uniqueCats = Array.from(new Set([...products, ...fetched].map(p => p.category)));
-      setCategories(['All', ...uniqueCats]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -63,12 +59,11 @@ export const Home = () => {
     }
   };
 
-  // Filtrado local
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(debouncedSearch.toLowerCase());
-    const matchesCategory = categoryFilter === 'All' || p.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  });
+  // La categoría ya viene filtrada por Firestore; la búsqueda por nombre queda en memoria
+  // sobre lo ya cargado (con debounce para no recalcular en cada tecla).
+  const filteredProducts = products.filter(p =>
+    p.name.toLowerCase().includes(debouncedSearch.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
@@ -143,7 +138,7 @@ export const Home = () => {
         )}
 
         {/* Botón Cargar Más */}
-        {!loading && hasMore && filteredProducts.length > 0 && categoryFilter === 'All' && searchTerm === '' && (
+        {!loading && hasMore && filteredProducts.length > 0 && searchTerm === '' && (
           <div className="flex justify-center mt-12">
             <button 
               onClick={loadMoreProducts}

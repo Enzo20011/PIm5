@@ -1,58 +1,39 @@
-import { collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, query, orderBy, limit, startAfter, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, limit as fsLimit, startAfter, orderBy, where } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Product } from '../types';
 
-const COLLECTION_NAME = 'products';
-const productsRef = collection(db, COLLECTION_NAME);
-
 export const productService = {
-  // Obtener lista paginada de productos
-  async getProducts(limitCount = 20, lastVisible?: QueryDocumentSnapshot): Promise<{ products: Product[], lastDoc: QueryDocumentSnapshot | null }> {
-    let q = query(productsRef, orderBy('createdAt', 'desc'), limit(limitCount));
-    
-    if (lastVisible) {
-      q = query(productsRef, orderBy('createdAt', 'desc'), startAfter(lastVisible), limit(limitCount));
+  getProductById: async (id: string): Promise<Product | null> => {
+    const docRef = doc(db, 'products', id);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? (docSnap.data() as Product) : null;
+  },
+  getProducts: async (limitCount: number, lastDoc?: any, category?: string): Promise<{ products: Product[], lastDoc: any }> => {
+    const constraints = category && category !== 'All' ? [where('category', '==', category)] : [];
+    let q = query(collection(db, 'products'), ...constraints, orderBy('createdAt', 'desc'), fsLimit(limitCount));
+    if (lastDoc) {
+      q = query(collection(db, 'products'), ...constraints, orderBy('createdAt', 'desc'), startAfter(lastDoc), fsLimit(limitCount));
     }
-
-    const snapshot = await getDocs(q);
-    const products: Product[] = [];
-    snapshot.forEach(doc => {
-      products.push({ id: doc.id, ...doc.data() } as Product);
-    });
-
-    const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-
-    return { products, lastDoc };
+    const querySnapshot = await getDocs(q);
+    const products = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
+    const newLastDoc = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
+    return { products, lastDoc: newLastDoc };
   },
-
-  // Obtener un solo producto
-  async getProductById(id: string): Promise<Product | null> {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    const snapshot = await getDoc(docRef);
-    if (snapshot.exists()) {
-      return { id: snapshot.id, ...snapshot.data() } as Product;
-    }
-    return null;
+  getAllCategories: async (): Promise<string[]> => {
+    const querySnapshot = await getDocs(collection(db, 'products'));
+    const cats = querySnapshot.docs.map(doc => (doc.data() as Product).category);
+    return Array.from(new Set(cats));
   },
-
-  // Crear producto (Requiere Rol Admin validado por Reglas de Firestore)
-  async createProduct(productData: Omit<Product, 'id' | 'createdAt'>): Promise<string> {
-    const docRef = await addDoc(productsRef, {
-      ...productData,
-      createdAt: Date.now()
-    });
-    return docRef.id;
+  updateProduct: async (id: string, data: Partial<Product>): Promise<void> => {
+    const docRef = doc(db, 'products', id);
+    await updateDoc(docRef, data);
   },
-
-  // Actualizar producto
-  async updateProduct(id: string, productData: Partial<Product>): Promise<void> {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    await updateDoc(docRef, productData);
-  },
-
-  // Eliminar producto
-  async deleteProduct(id: string): Promise<void> {
-    const docRef = doc(db, COLLECTION_NAME, id);
+  deleteProduct: async (id: string): Promise<void> => {
+    const docRef = doc(db, 'products', id);
     await deleteDoc(docRef);
+  },
+  createProduct: async (data: Partial<Product>): Promise<void> => {
+    const newRef = doc(collection(db, 'products'));
+    await setDoc(newRef, { ...data, id: newRef.id, createdAt: Date.now() });
   }
 };

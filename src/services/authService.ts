@@ -1,34 +1,26 @@
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signInWithPopup, 
-  signOut 
-} from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, googleProvider } from './firebase';
-import type { UserProfile, UserRole } from '../types';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
+import type { UserProfile } from '../types';
 
 export const authService = {
-  // Función auxiliar para obtener o crear el perfil de usuario en Firestore
-  async getOrCreateUserProfile(user: FirebaseUser, role: UserRole = 'customer'): Promise<UserProfile> {
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDoc = await getDoc(userDocRef);
+  getOrCreateUserProfile: async (firebaseUser: FirebaseUser): Promise<UserProfile> => {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const userSnap = await getDoc(userRef);
 
-    if (userDoc.exists()) {
-      return userDoc.data() as UserProfile;
+    if (userSnap.exists()) {
+      return userSnap.data() as UserProfile;
+    } else {
+      const newProfile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName,
+        role: 'customer',
+        createdAt: Date.now(),
+      };
+      
+      await setDoc(userRef, newProfile);
+      return newProfile;
     }
-
-    // Si el usuario no existe en Firestore (ej: primer login con Google), lo creamos
-    const newUserProfile: UserProfile = {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      role,
-      createdAt: Date.now()
-    };
-
-    await setDoc(userDocRef, newUserProfile);
-    return newUserProfile;
   }
 };

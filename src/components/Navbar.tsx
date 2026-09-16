@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCart } from '../contexts/CartContext';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { FiShoppingCart, FiSun, FiMoon, FiUser, FiLogOut, FiSettings } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
@@ -11,8 +12,20 @@ export const Navbar = () => {
   const navigate = useNavigate();
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/');
+    try {
+      await logout();
+      toast.success('Sesión cerrada correctamente', {
+        icon: '👋',
+        style: {
+          borderRadius: '10px',
+          background: isDark ? '#374151' : '#fff',
+          color: isDark ? '#fff' : '#333',
+        },
+      });
+      navigate('/');
+    } catch (error) {
+      toast.error('Error al cerrar sesión');
+    }
   };
 
   return (

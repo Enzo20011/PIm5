@@ -54,9 +54,10 @@ Proyecto Integrador Final (Módulo 5) para la creación de una Single Page Appli
    ```
 
 3. **Configurar Variables de Entorno:**
-   Crea un archivo llamado `.env.local` en la raíz del proyecto y agrega tus claves reales:
+   Crea un archivo llamado `.env.local` en la raíz del proyecto y agrega tus claves reales (ver `.env.example`):
 
    ```env
+   # Frontend (Vite las expone en el bundle del cliente — solo van acá claves públicas)
    VITE_FIREBASE_API_KEY=tu-api-key
    VITE_FIREBASE_AUTH_DOMAIN=tu-proyecto.firebaseapp.com
    VITE_FIREBASE_PROJECT_ID=tu-proyecto
@@ -64,13 +65,27 @@ Proyecto Integrador Final (Módulo 5) para la creación de una Single Page Appli
    VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
    VITE_FIREBASE_APP_ID=1:123456789:web:abcde
 
+   # Server-side (usadas solo por api/upload.ts — SIN prefijo VITE_ para que
+   # nunca se empaqueten en el bundle del frontend ni queden visibles al cliente)
    AWS_ACCESS_KEY_ID=tu-aws-key
    AWS_SECRET_ACCESS_KEY=tu-aws-secret
    AWS_REGION=sa-east-1
-   S3_BUCKET_NAME=tu-bucket-name
+   AWS_S3_BUCKET_NAME=tu-bucket-name
    ```
 
-4. **Levantar el entorno de desarrollo:**
+   En Vercel (producción), estas mismas variables se cargan en *Project Settings → Environment Variables* del dashboard, nunca en un archivo committeado.
+
+4. **Desplegar las reglas de seguridad de Firestore:**
+
+   Las reglas viven en [`firestore.rules`](firestore.rules) (protegen `products` y `orders` por rol, ver sección de Seguridad más abajo). Para aplicarlas al proyecto real:
+
+   ```bash
+   npm install -g firebase-tools   # si no lo tenés instalado
+   firebase login
+   firebase deploy --only firestore:rules
+   ```
+
+5. **Levantar el entorno de desarrollo:**
 
    ```bash
    npm run dev
@@ -78,25 +93,48 @@ Proyecto Integrador Final (Módulo 5) para la creación de una Single Page Appli
 
    *La aplicación estará corriendo en `http://localhost:3000`.*
 
-5. **Ejecutar Pruebas (Vitest):**
+6. **Ejecutar Pruebas (Vitest):**
 
    ```bash
    npm run test
    ```
 
-## 🤖 Log de Uso de Inteligencia Artificial (Prompt Log)
+## 🔒 Seguridad y Reglas de Firestore
 
-Durante el desarrollo de este proyecto integrador se utilizó asistencia de IA (Gemini/Antigravity) operando como *Pair Programmer* autónomo. A continuación se resumen los prompts clave y flujos de decisión:
+- Las credenciales de AWS **nunca** viven en el frontend: `api/upload.ts` (Vercel Serverless Function) es el único lugar que las usa, generando una *presigned URL* de S3 para que el navegador suba el archivo directamente sin exponer claves.
+- `firestore.rules` define el acceso por rol:
+  - `users/{uid}`: cada usuario lee/crea su propio perfil; el rol se fija en `customer` al alta y sólo se puede promover a `admin` manualmente desde la consola de Firebase (nunca desde el cliente).
+  - `products/{id}`: lectura pública; sólo `admin` puede crear/editar/borrar, salvo el descuento de `stock` durante el checkout, que cualquier usuario autenticado puede hacer (y sólo puede *bajar* el valor, nunca subirlo ni tocar otro campo).
+  - `orders/{id}`: cada cliente sólo lee/crea sus propias órdenes; sólo `admin` puede listarlas todas y cambiar su `status`.
 
-1. **"te voy a pasar imagenes de un proyecto integrador para que vayas viendo que hay que hacer"**:
-   - *Decisión IA:* Lectura comprensiva de múltiples diapositivas. Se generó un plan arquitectónico (`implementation_plan.md`) extrayendo requerimientos funcionales (Auth, S3, Firestore) y diseño (Premium SPA).
-2. **"valores de pruebas y despues los remplazo"**:
-   - *Decisión IA:* Configuración de variables de entorno *dummy* (`.env.local`) y un wrapper de Firebase que maneja de forma grácil los errores para permitir el desarrollo visual de la UI sin bloquearse por falta de backend.
-3. **"fase tres y al final probamos todo"**:
-   - *Decisión IA:* Implementación de Vercel Serverless Function (`api/upload.ts`) para presigned URLs, y CRUD de productos en Firestore. Generación asíncrona y estructurada de componentes.
-4. **"ese localhost ya esta ocupado pone en otro"**:
-   - *Resolución de IA:* Modificación dinámica de `vite.config.ts` para forzar el puerto 3000.
-5. **"esta en blanco la pagina"**:
-   - *Resolución de IA (Debugging Autónomo):* La IA ejecutó `npx vite build` en segundo plano, detectó un error de compilación estricto de Rolldown/Vite 8 relacionado a exportaciones de interfaces de TypeScript (`[MISSING_EXPORT] "User"`), y automáticamente refactorizó los imports a `import type`.
-6. **"haz los extracredits"**:
-   - *Decisión IA:* Se agregaron librerías (`recharts`) y se actualizó el `AdminDashboard` para soportar métricas. Se modificaron los hooks de Firestore para utilizar `startAfter` (Paginación nativa) y se extendió el tipo `Product` para soportar estrellas de *Rating*.
+## 🤖 Bitácora de Uso de Inteligencia Artificial
+
+Usé IA (Gemini/Antigravity, y luego Claude para la auditoría de seguridad) como asistente durante el desarrollo. Estas son las entradas clave con mi propia reflexión sobre lo que aprendí y por qué decidí lo que decidí:
+
+1. **Prompt: "te voy a pasar imagenes de un proyecto integrador para que vayas viendo que hay que hacer"**
+   - *Aprendizaje:* Partir de las diapositivas de la consigna en vez de arrancar a codear directo me obligó a mapear primero los requerimientos funcionales (Auth, S3, Firestore) antes de tocar código, lo que evitó tener que rehacer la arquitectura a mitad de camino.
+   - *Decisión:* Armé un plan de implementación por fases (setup → auth → catálogo → carrito → checkout → admin) antes de escribir el primer componente.
+
+2. **Prompt: "valores de pruebas y despues los remplazo"**
+   - *Aprendizaje:* Trabajar con variables de entorno dummy me permitió avanzar la UI sin depender de que el backend (Firebase/AWS) ya estuviera configurado, pero también fue la raíz de un problema real: terminé con credenciales de AWS reales pegadas directamente en `.env.local` y en `vercel.json` con prefijo `VITE_`, lo que las exponía en el bundle del frontend. Lo corregí sacándolas del build y separando claramente qué variables son públicas (Firebase, con prefijo `VITE_`) de cuáles son server-only (AWS, sin prefijo, sólo para `api/upload.ts`).
+   - *Decisión:* De acá en adelante, ninguna credencial sensible va en un archivo del repo, ni siquiera gitignoreado; las de AWS sólo viven como variable de entorno del lado del servidor.
+
+3. **Prompt: "fase tres y al final probamos todo"**
+   - *Aprendizaje:* Implementar `api/upload.ts` como Vercel Function para generar presigned URLs tiene sentido justamente para no tener que exponer las credenciales de AWS en el navegador. Sin embargo, en el `AdminDashboard` terminé llamando al SDK de AWS directamente desde el cliente en vez de usar esa función — es decir, escribí la solución correcta pero no la usé donde importaba. Aprendí a revisar que el flujo completo (frontend → función serverless → S3) esté conectado de punta a punta, no sólo que cada pieza exista por separado.
+   - *Decisión:* Reescribí el flujo de subida de imágenes en `AdminDashboard` para que pase siempre por `api/upload.ts`.
+
+4. **Prompt: "ese localhost ya esta ocupado pone en otro"**
+   - *Aprendizaje:* Un detalle chico (puerto ocupado) pero que enseña a no dejar puertos "mágicos" sin documentar.
+   - *Decisión:* Forcé el puerto 3000 en `vite.config.ts` y lo dejé documentado en el README para que cualquiera que clone el repo sepa dónde va a correr.
+
+5. **Prompt: "esta en blanco la pagina"**
+   - *Aprendizaje:* Un error de compilación estricto de Vite/Rolldown (`[MISSING_EXPORT] "User"`) me mostró que con `verbatimModuleSyntax` activado, los tipos tienen que importarse con `import type`, no como imports normales — si no, el build falla en producción aunque en dev no se note.
+   - *Decisión:* Separé imports de tipos (`import type`) de imports de valores en los archivos que mezclaban ambos.
+
+6. **Prompt: "haz los extracredits"**
+   - *Aprendizaje:* Agregar analytics con `recharts` y paginación con `startAfter` de Firestore me hizo entender la diferencia entre paginar por offset (ineficiente, relee todo) y paginar por cursor (sólo lee lo nuevo) — quedó claro por qué la guía insiste en el segundo enfoque.
+   - *Decisión:* Extendí el tipo `Product` con `rating`/`reviewsCount` y el dashboard admin con métricas de ventas en vez de dejarlo como una tabla simple.
+
+7. **Prompt: auditoría de seguridad y de la guía del PI5 completa**
+   - *Aprendizaje:* No había ningún archivo de reglas de Firestore en el repo — sin eso, la protección por rol dependía únicamente de la UI (`ProtectedRoute`), lo cual no protege nada si alguien llama a Firestore directamente desde la consola del navegador. También el test suite existente nunca corrió realmente (faltaba el entorno `jsdom` en la config de Vitest y el script `test` en `package.json`).
+   - *Decisión:* Escribí `firestore.rules` con reglas por colección y rol, agregué `firebase.json`/`.firebaserc` para poder desplegarlas con `firebase deploy --only firestore:rules`, arreglé la configuración de Vitest, y sumé tests de `AuthContext`, `ProtectedRoute` y del reducer del carrito.

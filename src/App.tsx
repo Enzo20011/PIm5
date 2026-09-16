@@ -12,6 +12,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { Checkout } from './pages/Checkout';
 import { Profile } from './pages/Profile';
 import { ProductDetail } from './pages/ProductDetail';
+import { Orders } from './pages/Orders';
 
 function App() {
   return (
@@ -26,6 +27,11 @@ function App() {
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/login" element={<Login />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/orders" element={
+            <ProtectedRoute>
+              <Orders />
+            </ProtectedRoute>
+          } />
           <Route path="/profile" element={
             <ProtectedRoute>
               <Profile />

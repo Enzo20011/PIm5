@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function onlyAffected(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // /users/{uid}: perfil con el rol (customer | admin).
+    // El rol nunca lo puede fijar el propio usuario más allá de 'customer' en el alta,
+    // ni modificarlo después: subir a admin se hace a mano desde la consola de Firebase.
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.role == 'customer';
+      allow update: if isAdmin() ||
+        (isSignedIn() && request.auth.uid == userId && onlyAffected(['displayName']));
+      allow delete: if isAdmin();
+    }
+
+    // /products/{id}: catálogo público de lectura.
+    // Sólo el admin puede crear/editar/borrar productos,
+    // excepto el descuento de stock que hace el propio comprador en el checkout.
+    match /products/{productId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isSignedIn() &&
+          onlyAffected(['stock']) &&
+          request.resource.data.stock is int &&
+          request.resource.data.stock >= 0 &&
+          request.resource.data.stock <= resource.data.stock);
+    }
+
+    // /orders/{id}: cada cliente sólo ve y crea las suyas; sólo el admin
+    // puede listar todas y cambiar su estado.
+    match /orders/{orderId} {
+      allow read: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update: if isAdmin() && onlyAffected(['status']);
+      allow delete: if false;
+    }
+  }
+}

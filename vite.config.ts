@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
@@ -7,5 +7,10 @@ export default defineConfig({
   server: {
     port: 3000, // Forzado a usar el puerto 3000
     strictPort: false, // Si el 3000 estuviera ocupado, buscará el 3001, etc.
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.ts',
   }
 })
