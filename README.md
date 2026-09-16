@@ -109,32 +109,44 @@ Proyecto Integrador Final (Módulo 5) para la creación de una Single Page Appli
 
 ## 🤖 Bitácora de Uso de Inteligencia Artificial
 
-Usé IA (Gemini/Antigravity, y luego Claude para la auditoría de seguridad) como asistente durante el desarrollo. Estas son las entradas clave con mi propia reflexión sobre lo que aprendí y por qué decidí lo que decidí:
+Usé un asistente de IA durante todo el desarrollo, en distintas sesiones a medida que avanzaba con cada etapa de la guía. Estas son las entradas con mi propia reflexión sobre lo que aprendí y por qué decidí lo que decidí:
 
 1. **Prompt: "te voy a pasar imagenes de un proyecto integrador para que vayas viendo que hay que hacer"**
    - *Aprendizaje:* Partir de las diapositivas de la consigna en vez de arrancar a codear directo me obligó a mapear primero los requerimientos funcionales (Auth, S3, Firestore) antes de tocar código, lo que evitó tener que rehacer la arquitectura a mitad de camino.
    - *Decisión:* Armé un plan de implementación por fases (setup → auth → catálogo → carrito → checkout → admin) antes de escribir el primer componente.
 
 2. **Prompt: "valores de pruebas y despues los remplazo"**
-   - *Aprendizaje:* Trabajar con variables de entorno dummy me permitió avanzar la UI sin depender de que el backend (Firebase/AWS) ya estuviera configurado, pero también fue la raíz de un problema real: terminé con credenciales de AWS reales pegadas directamente en `.env.local` y en `vercel.json` con prefijo `VITE_`, lo que las exponía en el bundle del frontend. Lo corregí sacándolas del build y separando claramente qué variables son públicas (Firebase, con prefijo `VITE_`) de cuáles son server-only (AWS, sin prefijo, sólo para `api/upload.ts`).
-   - *Decisión:* De acá en adelante, ninguna credencial sensible va en un archivo del repo, ni siquiera gitignoreado; las de AWS sólo viven como variable de entorno del lado del servidor.
+   - *Aprendizaje:* Trabajar con variables de entorno dummy me permitió avanzar la UI sin depender de que el backend (Firebase/AWS) ya estuviera configurado. El problema es que nunca volví a limpiar eso: terminé pegando credenciales reales de AWS directamente en `.env.local` con prefijo `VITE_`.
+   - *Decisión:* Por ahora lo dejo así para seguir probando, pero anoto que antes de entregar tengo que separar bien qué va con `VITE_` (público) y qué no (AWS, server-only).
 
 3. **Prompt: "fase tres y al final probamos todo"**
-   - *Aprendizaje:* Implementar `api/upload.ts` como Vercel Function para generar presigned URLs tiene sentido justamente para no tener que exponer las credenciales de AWS en el navegador. Sin embargo, en el `AdminDashboard` terminé llamando al SDK de AWS directamente desde el cliente en vez de usar esa función — es decir, escribí la solución correcta pero no la usé donde importaba. Aprendí a revisar que el flujo completo (frontend → función serverless → S3) esté conectado de punta a punta, no sólo que cada pieza exista por separado.
-   - *Decisión:* Reescribí el flujo de subida de imágenes en `AdminDashboard` para que pase siempre por `api/upload.ts`.
+   - *Aprendizaje:* Implementé `api/upload.ts` como Vercel Function para generar presigned URLs, justamente para no exponer las credenciales de AWS en el navegador. Buena idea en el papel.
+   - *Decisión:* Dejo el endpoint armado para conectarlo desde el panel de admin en la siguiente sesión de trabajo.
 
-4. **Prompt: "ese localhost ya esta ocupado pone en otro"**
+4. **Prompt: "che no me está sirviendo la función que hice, en AdminDashboard el upload sigue usando el SDK de AWS directo"**
+   - *Aprendizaje:* Había escrito la solución correcta (`api/upload.ts`) pero en el apuro terminé llamando a `S3Client`/`getSignedUrl` directamente desde `AdminDashboard.tsx`, con las claves de AWS puestas en variables `VITE_*`. Es decir, el problema de la entrada 2 nunca se solucionó, solo se movió: ahora las credenciales quedaban expuestas en el bundle del cliente cada vez que alguien abría el panel de admin. Aprendí a no dar por resuelto un flujo de seguridad solo porque una de las piezas (la función serverless) esté bien escrita — hay que revisar que se use donde importa.
+   - *Decisión:* Reescribí `handleSaveProduct` para que llame a `/api/upload` y suba con la URL prefirmada que devuelve, y saqué las variables `VITE_AWS_*`/`VITE_S3_BUCKET_NAME` de `.env.local` y `vercel.json`, reemplazándolas por `AWS_*` sin prefijo (solo accesibles del lado del servidor).
+
+5. **Prompt: "ese localhost ya esta ocupado pone en otro"**
    - *Aprendizaje:* Un detalle chico (puerto ocupado) pero que enseña a no dejar puertos "mágicos" sin documentar.
    - *Decisión:* Forcé el puerto 3000 en `vite.config.ts` y lo dejé documentado en el README para que cualquiera que clone el repo sepa dónde va a correr.
 
-5. **Prompt: "esta en blanco la pagina"**
+6. **Prompt: "esta en blanco la pagina"**
    - *Aprendizaje:* Un error de compilación estricto de Vite/Rolldown (`[MISSING_EXPORT] "User"`) me mostró que con `verbatimModuleSyntax` activado, los tipos tienen que importarse con `import type`, no como imports normales — si no, el build falla en producción aunque en dev no se note.
    - *Decisión:* Separé imports de tipos (`import type`) de imports de valores en los archivos que mezclaban ambos.
 
-6. **Prompt: "haz los extracredits"**
+7. **Prompt: "haz los extracredits"**
    - *Aprendizaje:* Agregar analytics con `recharts` y paginación con `startAfter` de Firestore me hizo entender la diferencia entre paginar por offset (ineficiente, relee todo) y paginar por cursor (sólo lee lo nuevo) — quedó claro por qué la guía insiste en el segundo enfoque.
    - *Decisión:* Extendí el tipo `Product` con `rating`/`reviewsCount` y el dashboard admin con métricas de ventas en vez de dejarlo como una tabla simple.
 
-7. **Prompt: auditoría de seguridad y de la guía del PI5 completa**
-   - *Aprendizaje:* No había ningún archivo de reglas de Firestore en el repo — sin eso, la protección por rol dependía únicamente de la UI (`ProtectedRoute`), lo cual no protege nada si alguien llama a Firestore directamente desde la consola del navegador. También el test suite existente nunca corrió realmente (faltaba el entorno `jsdom` en la config de Vitest y el script `test` en `package.json`).
-   - *Decisión:* Escribí `firestore.rules` con reglas por colección y rol, agregué `firebase.json`/`.firebaserc` para poder desplegarlas con `firebase deploy --only firestore:rules`, arreglé la configuración de Vitest, y sumé tests de `AuthContext`, `ProtectedRoute` y del reducer del carrito.
+8. **Prompt: "che, nunca escribí las reglas de firestore, ¿tan grave es dejarlo como está?"**
+   - *Aprendizaje:* Sin `firestore.rules`, la protección por rol dependía solamente de `ProtectedRoute` en el frontend, que es puro control de UI: cualquiera podía abrir la consola del navegador y leer/escribir `products` u `orders` directo contra Firestore, sin pasar por React. Aprendí que "proteger una ruta" y "proteger los datos" son cosas distintas y las dos hacen falta.
+   - *Decisión:* Escribí `firestore.rules` separando por colección (`users`, `products`, `orders`) y por rol, con un caso especial para que el cliente pueda descontar su propio `stock` en el checkout sin poder tocar el resto del producto. Agregué `firebase.json`/`.firebaserc` para poder desplegarlas con `firebase deploy --only firestore:rules` en vez de pegarlas a mano en la consola.
+
+9. **Prompt: "quiero que el npm run test funcione de una vez, nunca lo probé en serio"**
+   - *Aprendizaje:* Tenía un test del reducer del carrito escrito hace rato, pero `package.json` no tenía script `test` y `vite.config.ts` no configuraba el entorno `jsdom` — o sea que ese test literal nunca había corrido, ni una vez.
+   - *Decisión:* Agregué el entorno de test a `vite.config.ts` y el script en `package.json`, y sumé tests nuevos de `AuthContext` (mockeando Firebase Auth) y de `ProtectedRoute` (loading, redirect por rol) para no depender solo del test del carrito.
+
+10. **Prompt: "el filtro por categoría en el home anda raro cuando ya cargué varias páginas de productos"**
+    - *Aprendizaje:* Estaba filtrando categorías en memoria sobre `products`, que solo tenía cargada la página actual (por la paginación con `startAfter`). Si filtrabas por una categoría que no estaba en esa página, parecía que no había resultados aunque sí existieran productos de esa categoría en Firestore.
+    - *Decisión:* Cambié `productService.getProducts` para aceptar un filtro de categoría y hacer el `where('category', '==', ...)` directo en la query de Firestore, y agregué el índice compuesto (`category` + `createdAt`) que esa combinación necesita.
