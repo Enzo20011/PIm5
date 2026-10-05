@@ -19,6 +19,7 @@ export const orderService = {
   // así no se compra con datos viejos ni con un precio manipulado desde el navegador.
   placeOrder: async (userId: string, lines: CartLine[]): Promise<string> => {
     if (lines.length === 0) throw new Error('El carrito está vacío');
+    if (lines.some(l => !l.id)) throw new Error('Hay un producto inválido en el carrito. Quitalo y volvé a agregarlo.');
 
     return runTransaction(db, async (tx) => {
       const products = [];

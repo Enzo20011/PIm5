@@ -6,7 +6,8 @@ export const productService = {
   getProductById: async (id: string): Promise<Product | null> => {
     const docRef = doc(db, 'products', id);
     const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? (docSnap.data() as Product) : null;
+    // El id sale del documento: no todos los productos lo traen guardado como campo
+    return docSnap.exists() ? ({ ...docSnap.data(), id: docSnap.id } as Product) : null;
   },
   getProducts: async (limitCount: number, lastDoc?: any, category?: string): Promise<{ products: Product[], lastDoc: any }> => {
     const constraints = category && category !== 'All' ? [where('category', '==', category)] : [];
