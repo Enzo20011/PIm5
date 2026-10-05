@@ -23,7 +23,7 @@ export const Navbar = () => {
         },
       });
       navigate('/');
-    } catch (error) {
+    } catch {
       toast.error('Error al cerrar sesión');
     }
   };
@@ -60,6 +60,9 @@ export const Navbar = () => {
                 <Link to="/profile" className="flex items-center space-x-2 hover:text-blue-400 transition-colors">
                   <FiUser className="w-5 h-5" />
                   <span className="hidden sm:inline text-sm font-medium">{user.displayName || 'Mi Perfil'}</span>
+                </Link>
+                <Link to="/orders" className="hidden sm:inline text-sm font-medium hover:text-blue-400 transition-colors">
+                  Mis compras
                 </Link>
                 {user.role === 'admin' && (
                   <Link to="/admin" className="p-2 hover:text-blue-400 transition-colors" title="Panel de Control">

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { productService } from '../services/productService';
 import { useCart } from '../contexts/CartContext';
@@ -15,10 +15,10 @@ export const ProductDetail = () => {
 
   useEffect(() => {
     if (id) {
-      productService.getProductById(id).then(data => {
-        setProduct(data);
-        setLoading(false);
-      });
+      productService.getProductById(id)
+        .then(data => setProduct(data))
+        .catch(console.error)
+        .finally(() => setLoading(false));
     }
   }, [id]);
 
@@ -71,12 +71,17 @@ export const ProductDetail = () => {
             >
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{product.name}</h1>
               
-              <div className="flex items-center space-x-2 mb-6">
-                <span className="text-yellow-400 text-lg">{'★'.repeat(product.rating || 5)}{'☆'.repeat(5 - (product.rating || 5))}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">({product.reviewsCount || Math.floor(Math.random() * 50) + 1} reviews)</span>
-              </div>
-              
-              <p className="text-3xl font-black text-brand-600 dark:text-brand-400 mb-6">${product.price}</p>
+              {product.rating ? (
+                <div className="flex items-center space-x-2 mb-6">
+                  <span className="text-yellow-400 text-lg">{'★'.repeat(product.rating)}{'☆'.repeat(5 - product.rating)}</span>
+                  {product.reviewsCount ? <span className="text-sm text-gray-500 dark:text-gray-400">({product.reviewsCount} reviews)</span> : null}
+                </div>
+              ) : null}
+
+              <p className="text-3xl font-black text-brand-600 dark:text-brand-400 mb-2">${product.price}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                {product.stock > 0 ? `${product.stock} unidades disponibles` : 'Sin stock'}
+              </p>
               
               <p className="text-gray-600 dark:text-gray-300 text-lg leading-relaxed mb-8">
                 {product.description || "Este producto no tiene una descripción detallada, pero te aseguramos que cuenta con la mejor calidad garantizada por Patagonix."}
@@ -85,9 +90,10 @@ export const ProductDetail = () => {
               <div className="mt-auto">
                 <button 
                   onClick={() => addItem(product)}
-                  className="w-full flex items-center justify-center bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-lg hover:shadow-brand-500/30"
+                  disabled={product.stock < 1}
+                  className="w-full flex items-center justify-center bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-lg hover:shadow-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <FiShoppingCart className="mr-2 h-6 w-6" /> Añadir al Carrito
+                  <FiShoppingCart className="mr-2 h-6 w-6" /> {product.stock < 1 ? 'Sin stock' : 'Añadir al Carrito'}
                 </button>
               </div>
             </motion.div>

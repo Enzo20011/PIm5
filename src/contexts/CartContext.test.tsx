@@ -118,4 +118,39 @@ describe('CartContext', () => {
       'useCart must be used within a CartProvider'
     );
   });
+
+  describe('límites de stock y cantidades (useCart con renderHook)', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => <CartProvider>{children}</CartProvider>;
+    const lowStock: Product = { ...mockProduct, id: '2', stock: 2 };
+
+    it('no deja agregar más unidades que el stock', () => {
+      const { result } = renderHook(() => useCart(), { wrapper });
+      act(() => result.current.addItem(lowStock));
+      act(() => result.current.addItem(lowStock));
+      act(() => result.current.addItem(lowStock)); // tercera: no hay stock
+      expect(result.current.items[0].quantity).toBe(2);
+    });
+
+    it('no agrega productos sin stock', () => {
+      const { result } = renderHook(() => useCart(), { wrapper });
+      act(() => result.current.addItem({ ...lowStock, stock: 0 }));
+      expect(result.current.items).toHaveLength(0);
+    });
+
+    it('updateQuantity topa en el stock', () => {
+      const { result } = renderHook(() => useCart(), { wrapper });
+      act(() => result.current.addItem(lowStock));
+      act(() => result.current.updateQuantity('2', 50));
+      expect(result.current.items[0].quantity).toBe(2);
+      expect(result.current.total).toBe(200);
+    });
+
+    it('updateQuantity en 0 saca el producto del carrito', () => {
+      const { result } = renderHook(() => useCart(), { wrapper });
+      act(() => result.current.addItem(lowStock));
+      act(() => result.current.updateQuantity('2', 0));
+      expect(result.current.items).toHaveLength(0);
+      expect(result.current.total).toBe(0);
+    });
+  });
 });

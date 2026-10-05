@@ -19,6 +19,13 @@ export const productService = {
     const newLastDoc = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
     return { products, lastDoc: newLastDoc };
   },
+  // Firestore no busca por texto parcial, así que traemos el catálogo (con tope) y
+  // filtramos por nombre acá. Sirve para un catálogo chico como este.
+  searchProducts: async (term: string, category?: string): Promise<Product[]> => {
+    const { products } = await productService.getProducts(200, undefined, category);
+    const needle = term.trim().toLowerCase();
+    return products.filter(p => p.name.toLowerCase().includes(needle));
+  },
   getAllCategories: async (): Promise<string[]> => {
     const querySnapshot = await getDocs(collection(db, 'products'));
     const cats = querySnapshot.docs.map(doc => (doc.data() as Product).category);

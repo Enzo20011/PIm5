@@ -1,9 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { orderService } from '../services/orderService';
+import { OrderCard } from '../components/OrderCard';
 import type { Order } from '../types';
 import { motion } from 'framer-motion';
-import { FiPackage, FiUser, FiClock } from 'react-icons/fi';
+import { FiPackage, FiUser } from 'react-icons/fi';
+
+const RECENT_ORDERS = 3;
 
 export const Profile = () => {
   const { user } = useAuth();
@@ -30,9 +34,9 @@ export const Profile = () => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-8">
-        
+
         {/* Tarjeta de Perfil */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 flex items-center space-x-6"
         >
@@ -50,45 +54,24 @@ export const Profile = () => {
           </div>
         </motion.div>
 
-        {/* Historial de Órdenes */}
+        {/* Últimas compras */}
         <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6 flex items-center">
-            <FiPackage className="mr-2" /> Mis Compras
-          </h2>
-          
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+              <FiPackage className="mr-2" /> Últimas compras
+            </h2>
+            {orders.length > RECENT_ORDERS && (
+              <Link to="/orders" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Ver todas</Link>
+            )}
+          </div>
+
           {orders.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
-              <p className="text-gray-500 dark:text-gray-400">Aún no has realizado ninguna compra.</p>
+              <p className="text-gray-500 dark:text-gray-400">Todavía no hiciste ninguna compra.</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {orders.map((order, i) => (
-                <motion.div 
-                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
-                  key={order.id} 
-                  className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center hover:shadow-md transition-shadow"
-                >
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">#{order.id}</p>
-                    <p className="text-gray-900 dark:text-white font-medium flex items-center mt-1">
-                      <FiClock className="mr-1 text-gray-400" /> {new Date(order.createdAt).toLocaleDateString()}
-                    </p>
-                    <p className="mt-2 text-sm font-bold">
-                      <span className={`px-2 py-1 rounded-md ${
-                        order.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-500' :
-                        order.status === 'delivered' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-500' :
-                        'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-500'
-                      }`}>
-                        {order.status.toUpperCase()}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="mt-4 sm:mt-0 text-right w-full sm:w-auto border-t sm:border-t-0 sm:border-l border-gray-100 dark:border-gray-700 pt-4 sm:pt-0 sm:pl-6">
-                    <p className="text-2xl font-black text-brand-600 dark:text-brand-400">${order.total}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{order.items.length} artículos</p>
-                  </div>
-                </motion.div>
-              ))}
+              {orders.slice(0, RECENT_ORDERS).map(order => <OrderCard key={order.id} order={order} />)}
             </div>
           )}
         </div>

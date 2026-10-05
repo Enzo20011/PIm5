@@ -1,60 +1,54 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { orderService } from '../services/orderService';
+import { OrderCard } from '../components/OrderCard';
 import type { Order } from '../types';
-import { Link } from 'react-router-dom';
 
 export const Orders = () => {
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      loadOrders();
-    }
+    if (!user) return;
+    orderService.getUserOrders(user.uid)
+      .then(setOrders)
+      .catch(err => {
+        console.error(err);
+        setError(true);
+      })
+      .finally(() => setLoading(false));
   }, [user]);
 
-  const loadOrders = async () => {
-    try {
-      const data = await orderService.getUserOrders(user!.uid);
-      setOrders(data);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) return <div className="text-center py-20">Cargando tus órdenes...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex justify-center items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">Historial de Órdenes</h2>
-          <Link to="/" className="text-brand-600 hover:underline">Volver a la tienda</Link>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Mis compras</h2>
+          <Link to="/" className="text-brand-600 dark:text-brand-400 hover:underline">Volver a la tienda</Link>
         </div>
 
-        {orders.length === 0 ? (
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">
-            <p className="text-gray-500">Aún no has realizado ninguna compra.</p>
+        {error ? (
+          <div className="bg-red-50 dark:bg-red-900/20 p-8 rounded-xl border border-red-100 dark:border-red-900/40 text-center text-red-700 dark:text-red-400">
+            No pudimos cargar tus órdenes. Probá de nuevo en un rato.
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
+            <p className="text-gray-500 dark:text-gray-400">Todavía no hiciste ninguna compra.</p>
           </div>
         ) : (
           <div className="space-y-6">
-            {orders.map(order => (
-              <div key={order.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center">
-                <div>
-                  <p className="text-sm text-gray-500">Orden ID: {order.id}</p>
-                  <p className="text-sm text-gray-500">Fecha: {new Date(order.createdAt).toLocaleDateString()}</p>
-                  <p className="mt-2 font-medium">Estado: <span className="uppercase text-brand-600">{order.status}</span></p>
-                </div>
-                <div className="mt-4 md:mt-0 text-right">
-                  <p className="text-2xl font-bold text-gray-900">${order.total}</p>
-                  <p className="text-sm text-gray-500">{order.items.length} artículo(s)</p>
-                </div>
-              </div>
-            ))}
+            {orders.map(order => <OrderCard key={order.id} order={order} />)}
           </div>
         )}
       </div>

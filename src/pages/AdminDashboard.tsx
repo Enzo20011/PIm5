@@ -1,17 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { Link } from 'react-router-dom';
 import { productService } from '../services/productService';
 import { orderService } from '../services/orderService';
-import type { Product, Order } from '../types';
+import { auth } from '../services/firebase';
+import { ORDER_STATUSES, ORDER_STATUS_LABELS } from '../types';
+import type { Product, Order, OrderStatus } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 import { FiEdit2, FiTrash2 } from 'react-icons/fi';
 
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+type Tab = 'analytics' | 'products' | 'orders';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'analytics', label: 'Dashboard' },
+  { id: 'products', label: 'Productos' },
+  { id: 'orders', label: 'Órdenes' },
+];
+
 export const AdminDashboard = () => {
-  const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'analytics' | 'products' | 'orders'>('analytics');
-  
+  const [activeTab, setActiveTab] = useState<Tab>('analytics');
+
   // Productos State
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +29,8 @@ export const AdminDashboard = () => {
   // Órdenes State
   const [orders, setOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | OrderStatus>('all');
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -42,6 +53,7 @@ export const AdminDashboard = () => {
       setProducts(fetched);
     } catch (error) {
       console.error('Error cargando productos', error);
+      toast.error('No se pudieron cargar los productos');
     } finally {
       setLoading(false);
     }
@@ -54,26 +66,38 @@ export const AdminDashboard = () => {
       setOrders(fetched);
     } catch (error) {
       console.error(error);
+      toast.error('No se pudieron cargar las órdenes');
     } finally {
       setLoadingOrders(false);
     }
   };
 
-  const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
+  const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
     try {
       await orderService.updateOrderStatus(orderId, newStatus);
+      toast.success('Estado actualizado');
       loadAdminOrders();
     } catch (error) {
       console.error(error);
+      toast.error('No se pudo cambiar el estado');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('¿Eliminar producto?')) {
+    if (!confirm('¿Eliminar producto?')) return;
+    try {
       await productService.deleteProduct(id);
       toast.success('Producto eliminado');
       loadProducts();
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo eliminar el producto');
     }
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setName(''); setPrice(''); setDescription(''); setCategory(''); setStock('10'); setFile(null);
   };
 
   const handleEdit = (product: Product) => {
@@ -87,34 +111,64 @@ export const AdminDashboard = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0] || null;
+    if (selected && !IMAGE_TYPES.includes(selected.type)) {
+      toast.error('Solo se aceptan imágenes JPG, PNG, WEBP o GIF');
+      e.target.value = '';
+      return setFile(null);
+    }
+    if (selected && selected.size > MAX_IMAGE_SIZE) {
+      toast.error('La imagen no puede pesar más de 5 MB');
+      e.target.value = '';
+      return setFile(null);
+    }
+    setFile(selected);
+  };
+
+  const uploadImage = async (image: File): Promise<string> => {
+    // 1. Pedimos una URL prefirmada a la función serverless (las credenciales de AWS quedan en el servidor).
+    //    La función verifica con el token de Firebase que quien pide sea admin.
+    const idToken = await auth.currentUser?.getIdToken();
+    if (!idToken) throw new Error('Tu sesión expiró, volvé a iniciar sesión');
+
+    const presignRes = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ filename: image.name, filetype: image.type, size: image.size })
+    });
+    if (!presignRes.ok) {
+      const body = await presignRes.json().catch(() => null);
+      throw new Error(body?.message || 'No se pudo generar la URL de subida');
+    }
+    const { url: presignedUrl, publicUrl } = await presignRes.json();
+
+    // 2. Subimos el archivo directamente a S3 con esa URL
+    const putRes = await fetch(presignedUrl, {
+      method: 'PUT',
+      body: image,
+      headers: { 'Content-Type': image.type }
+    });
+    if (!putRes.ok) throw new Error('S3 rechazó la subida de la imagen');
+
+    // 3. Devolvemos la URL pública final
+    return publicUrl;
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !price || !category) return toast.error('Faltan campos obligatorios');
+    const priceNumber = Number(price);
+    const stockNumber = Number(stock);
+    if (!name.trim() || !category.trim()) return toast.error('Faltan campos obligatorios');
+    if (!(priceNumber > 0)) return toast.error('El precio tiene que ser mayor a 0');
+    if (!Number.isInteger(stockNumber) || stockNumber < 0) return toast.error('El stock tiene que ser un entero de 0 o más');
     setIsCreating(true);
 
     try {
       let imageUrl = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&q=80'; // Fallback Placeholder
 
       if (file) {
-        // 1. Pedimos una URL prefirmada a la función serverless (las credenciales de AWS quedan en el servidor)
-        const presignRes = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, filetype: file.type })
-        });
-
-        if (!presignRes.ok) throw new Error('No se pudo generar la URL de subida');
-        const { url: presignedUrl, publicUrl } = await presignRes.json();
-
-        // 2. Subimos el archivo directamente a S3 con esa URL
-        await fetch(presignedUrl, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': file.type }
-        });
-
-        // 3. Guardamos la URL pública final
-        imageUrl = publicUrl;
+        imageUrl = await uploadImage(file);
       } else if (editingId) {
         // Mantenemos la imagen existente si estamos editando y no hay archivo nuevo
         const existingProduct = products.find(p => p.id === editingId);
@@ -122,12 +176,12 @@ export const AdminDashboard = () => {
       }
 
       const productData = {
-        name,
+        name: name.trim(),
         description,
-        price: Number(price),
-        category,
+        price: priceNumber,
+        category: category.trim(),
         imageUrl,
-        stock: Number(stock)
+        stock: stockNumber
       };
 
       if (editingId) {
@@ -138,7 +192,7 @@ export const AdminDashboard = () => {
         toast.success('Producto creado exitosamente');
       }
 
-      setName(''); setPrice(''); setDescription(''); setCategory(''); setStock('10'); setFile(null); setEditingId(null);
+      resetForm();
       loadProducts();
     } catch (error: any) {
       console.error(error);
@@ -148,45 +202,62 @@ export const AdminDashboard = () => {
     }
   };
 
+  // Las canceladas no cuentan como venta
+  const sales = orders.filter(o => o.status !== 'cancelled');
+  const revenue = sales.reduce((sum, o) => sum + o.total, 0);
+  const visibleOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter);
+
+  const tabClass = (id: Tab) =>
+    activeTab === id
+      ? 'bg-gray-900 text-white border-brand-500'
+      : 'text-gray-400 hover:text-white hover:bg-gray-700 transition border-transparent';
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex">
-      {/* Sidebar - Diferenciado para el Admin */}
-      <aside className="w-64 bg-gray-800 border-r border-gray-700 hidden md:block">
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
+      {/* Sidebar (escritorio) - Diferenciado para el Admin */}
+      <aside className="w-64 bg-gray-800 border-r border-gray-700 hidden md:block shrink-0">
         <div className="p-6">
           <h1 className="text-2xl font-bold text-brand-500">Patagonix Admin</h1>
           <p className="text-sm text-gray-400 mt-2">Panel de Control</p>
         </div>
         <nav className="mt-6">
-          <button onClick={() => setActiveTab('analytics')} className={`w-full text-left block px-6 py-3 ${activeTab === 'analytics' ? 'bg-gray-900 text-white border-l-4 border-brand-500' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition'}`}>Dashboard</button>
-          <button onClick={() => setActiveTab('products')} className={`w-full text-left block px-6 py-3 ${activeTab === 'products' ? 'bg-gray-900 text-white border-l-4 border-brand-500' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition'}`}>Productos</button>
-          <button onClick={() => setActiveTab('orders')} className={`w-full text-left block px-6 py-3 ${activeTab === 'orders' ? 'bg-gray-900 text-white border-l-4 border-brand-500' : 'text-gray-400 hover:text-white hover:bg-gray-700 transition'}`}>Órdenes</button>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} className={`w-full text-left block px-6 py-3 border-l-4 ${tabClass(t.id)}`}>{t.label}</button>
+          ))}
         </nav>
       </aside>
 
+      {/* Pestañas (celular) */}
+      <nav className="md:hidden bg-gray-800 border-b border-gray-700 flex" aria-label="Secciones del panel">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} className={`flex-1 py-3 text-sm font-medium border-b-4 ${tabClass(t.id)}`}>{t.label}</button>
+        ))}
+      </nav>
+
       {/* Contenido Principal */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full min-w-0">
           {activeTab === 'analytics' ? (
             <div className="max-w-5xl mx-auto">
               <h2 className="text-2xl font-semibold mb-6">Métricas de Ventas</h2>
-              <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg mb-8">
-                <div className="grid grid-cols-3 gap-6 mb-8 text-center">
+              <div className="bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-700 shadow-lg mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 text-center">
                   <div className="bg-gray-900 p-4 rounded-lg">
                     <p className="text-gray-400 text-sm">Órdenes Totales</p>
                     <p className="text-3xl font-bold text-white">{orders.length}</p>
                   </div>
                   <div className="bg-gray-900 p-4 rounded-lg">
-                    <p className="text-gray-400 text-sm">Ingresos Totales</p>
-                    <p className="text-3xl font-bold text-brand-500">${orders.reduce((sum, o) => sum + o.total, 0)}</p>
+                    <p className="text-gray-400 text-sm">Ingresos (sin canceladas)</p>
+                    <p className="text-3xl font-bold text-brand-500">${revenue}</p>
                   </div>
                   <div className="bg-gray-900 p-4 rounded-lg">
                     <p className="text-gray-400 text-sm">Promedio por Orden</p>
-                    <p className="text-3xl font-bold text-white">${orders.length ? Math.round(orders.reduce((sum, o) => sum + o.total, 0) / orders.length) : 0}</p>
+                    <p className="text-3xl font-bold text-white">${sales.length ? Math.round(revenue / sales.length) : 0}</p>
                   </div>
                 </div>
 
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={orders.map((o, i) => ({ name: `Orden ${orders.length - i}`, ventas: o.total })).reverse()}>
+                    <LineChart data={sales.map((o, i) => ({ name: `Orden ${sales.length - i}`, ventas: o.total })).reverse()}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                       <XAxis dataKey="name" stroke="#9ca3af" />
                       <YAxis stroke="#9ca3af" />
@@ -199,19 +270,19 @@ export const AdminDashboard = () => {
             </div>
           ) : activeTab === 'products' ? (
             <div className="max-w-5xl mx-auto space-y-8">
-              
+
               <section className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg">
               <h2 className="text-xl font-semibold mb-4 text-white">{editingId ? 'Editar Producto' : 'Añadir Nuevo Producto'}</h2>
               <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del producto" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
-                <input value={price} onChange={e => setPrice(e.target.value)} type="number" placeholder="Precio ($)" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
-                <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Categoría" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
-                <input value={stock} onChange={e => setStock(e.target.value)} type="number" placeholder="Stock" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
-                <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="bg-gray-700 border-gray-600 rounded p-1.5 text-white w-full md:col-span-2" accept="image/*" />
-                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full md:col-span-3 focus:ring-brand-500" rows={3}></textarea>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del producto" aria-label="Nombre del producto" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
+                <input value={price} onChange={e => setPrice(e.target.value)} type="number" min="0" step="any" placeholder="Precio ($)" aria-label="Precio" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
+                <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Categoría" aria-label="Categoría" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
+                <input value={stock} onChange={e => setStock(e.target.value)} type="number" min="0" step="1" placeholder="Stock" aria-label="Stock" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full focus:ring-brand-500" required />
+                <input type="file" onChange={handleFileChange} aria-label="Imagen del producto" className="bg-gray-700 border-gray-600 rounded p-1.5 text-white w-full md:col-span-2" accept={IMAGE_TYPES.join(',')} />
+                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" aria-label="Descripción" className="bg-gray-700 border-gray-600 rounded p-2 text-white w-full md:col-span-3 focus:ring-brand-500" rows={3}></textarea>
                 <div className="md:col-span-3 flex justify-end space-x-4">
                   {editingId && (
-                    <button type="button" onClick={() => { setEditingId(null); setName(''); setPrice(''); setDescription(''); setCategory(''); setStock('10'); setFile(null); }} className="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded font-medium transition">
+                    <button type="button" onClick={resetForm} className="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded font-medium transition">
                       Cancelar
                     </button>
                   )}
@@ -246,10 +317,10 @@ export const AdminDashboard = () => {
                         <div className="flex justify-between items-center">
                           <span className="text-xs bg-gray-700 px-2 py-1 rounded-full">{p.category} | Stock: {p.stock || 0}</span>
                           <div className="flex space-x-3">
-                            <button onClick={() => handleEdit(p)} className="text-sm text-blue-400 hover:text-blue-300" title="Editar">
+                            <button onClick={() => handleEdit(p)} className="text-sm text-blue-400 hover:text-blue-300" title="Editar" aria-label={`Editar ${p.name}`}>
                               <FiEdit2 />
                             </button>
-                            <button onClick={() => handleDelete(p.id)} className="text-sm text-red-400 hover:text-red-300" title="Eliminar">
+                            <button onClick={() => handleDelete(p.id)} className="text-sm text-red-400 hover:text-red-300" title="Eliminar" aria-label={`Eliminar ${p.name}`}>
                               <FiTrash2 />
                             </button>
                           </div>
@@ -263,13 +334,31 @@ export const AdminDashboard = () => {
             </div>
           ) : (
             <div className="max-w-5xl mx-auto">
-              <h2 className="text-2xl font-semibold mb-6">Gestión de Órdenes</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                <h2 className="text-2xl font-semibold">Gestión de Órdenes</h2>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  Filtrar por estado
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as 'all' | OrderStatus)}
+                    className="bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm"
+                  >
+                    <option value="all">Todos</option>
+                    {ORDER_STATUSES.map(s => <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>)}
+                  </select>
+                </label>
+              </div>
+
               {loadingOrders ? (
-                <div className="text-center py-10">Cargando órdenes...</div>
-              ) : orders.length === 0 ? (
-                <div className="bg-gray-800 p-8 rounded-xl text-center text-gray-400">No hay órdenes registradas.</div>
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500"></div>
+                </div>
+              ) : visibleOrders.length === 0 ? (
+                <div className="bg-gray-800 p-8 rounded-xl text-center text-gray-400">
+                  {orders.length === 0 ? 'No hay órdenes registradas.' : 'No hay órdenes con ese estado.'}
+                </div>
               ) : (
-                <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                <div className="bg-gray-800 rounded-xl overflow-x-auto border border-gray-700">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-900 text-gray-400">
                       <tr>
@@ -278,29 +367,55 @@ export const AdminDashboard = () => {
                         <th className="p-4">Total</th>
                         <th className="p-4">Estado</th>
                         <th className="p-4">Fecha</th>
+                        <th className="p-4"><span className="sr-only">Detalle</span></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700">
-                      {orders.map(order => (
-                        <tr key={order.id} className="hover:bg-gray-750">
-                          <td className="p-4">{order.id.slice(0,8)}...</td>
-                          <td className="p-4">{order.userId.slice(0,8)}...</td>
-                          <td className="p-4 font-bold">${order.total}</td>
-                          <td className="p-4">
-                            <select 
-                              value={order.status}
-                              onChange={(e) => handleStatusChange(order.id, e.target.value as Order['status'])}
-                              className="bg-gray-700 border border-gray-600 rounded p-1 text-white text-sm"
-                            >
-                              <option value="pending">Pendiente</option>
-                              <option value="processing">Procesando</option>
-                              <option value="shipped">Enviado</option>
-                              <option value="delivered">Entregado</option>
-                              <option value="cancelled">Cancelado</option>
-                            </select>
-                          </td>
-                          <td className="p-4">{new Date(order.createdAt).toLocaleDateString()}</td>
-                        </tr>
+                      {visibleOrders.map(order => (
+                        <React.Fragment key={order.id}>
+                          <tr className="hover:bg-gray-750">
+                            <td className="p-4">{order.id.slice(0,8)}...</td>
+                            <td className="p-4">{order.userId.slice(0,8)}...</td>
+                            <td className="p-4 font-bold">${order.total}</td>
+                            <td className="p-4">
+                              <select
+                                value={ORDER_STATUSES.includes(order.status) ? order.status : ''}
+                                onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                                aria-label={`Estado de la orden ${order.id}`}
+                                className="bg-gray-700 border border-gray-600 rounded p-1 text-white text-sm"
+                              >
+                                {!ORDER_STATUSES.includes(order.status) && (
+                                  <option value="" disabled>{ORDER_STATUS_LABELS[order.status] ?? order.status}</option>
+                                )}
+                                {ORDER_STATUSES.map(s => <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-4">{new Date(order.createdAt).toLocaleDateString()}</td>
+                            <td className="p-4">
+                              <button
+                                onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
+                                aria-expanded={expandedOrder === order.id}
+                                className="text-brand-400 hover:text-brand-300 whitespace-nowrap"
+                              >
+                                {expandedOrder === order.id ? 'Ocultar' : 'Ver detalle'}
+                              </button>
+                            </td>
+                          </tr>
+                          {expandedOrder === order.id && (
+                            <tr className="bg-gray-900/60">
+                              <td colSpan={6} className="p-4">
+                                <ul className="space-y-2">
+                                  {(order.items ?? []).map(it => (
+                                    <li key={it.id} className="flex justify-between gap-4 text-gray-300">
+                                      <span>{it.name}</span>
+                                      <span className="whitespace-nowrap">{it.quantity} x ${it.price} = ${it.quantity * it.price}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
