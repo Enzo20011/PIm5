@@ -2,7 +2,7 @@
 
 Proyecto Integrador Final (Módulo 5): una tienda online de ropa y calzado deportivo con panel de administración, hecha como Single Page Application con React, TypeScript, Firebase y AWS S3.
 
-**URL de producción:** _(pegar acá la URL de Vercel antes de entregar)_
+**URL de producción:** https://pim5-omega.vercel.app
 
 ## 🚀 Tecnologías Utilizadas
 
