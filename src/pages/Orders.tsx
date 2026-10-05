@@ -9,7 +9,7 @@ export const Orders = () => {
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -17,7 +17,9 @@ export const Orders = () => {
       .then(setOrders)
       .catch(err => {
         console.error(err);
-        setError(true);
+        setError(err?.code === 'failed-precondition'
+          ? 'La base de datos todavía está preparando el índice de órdenes. Esperá un par de minutos y recargá.'
+          : `${err?.code ?? 'error'}: ${err?.message ?? 'desconocido'}`);
       })
       .finally(() => setLoading(false));
   }, [user]);
@@ -40,7 +42,8 @@ export const Orders = () => {
 
         {error ? (
           <div className="bg-red-50 dark:bg-red-900/20 p-8 rounded-xl border border-red-100 dark:border-red-900/40 text-center text-red-700 dark:text-red-400">
-            No pudimos cargar tus órdenes. Probá de nuevo en un rato.
+            <p>No pudimos cargar tus órdenes.</p>
+            <p className="mt-2 text-sm font-mono break-words">{error}</p>
           </div>
         ) : orders.length === 0 ? (
           <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">

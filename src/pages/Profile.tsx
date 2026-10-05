@@ -13,12 +13,16 @@ export const Profile = () => {
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
       orderService.getUserOrders(user.uid)
         .then(data => setOrders(data))
-        .catch(console.error)
+        .catch(err => {
+          console.error(err);
+          setError(`${err?.code ?? 'error'}: ${err?.message ?? 'desconocido'}`);
+        })
         .finally(() => setLoading(false));
     }
   }, [user]);
@@ -65,7 +69,12 @@ export const Profile = () => {
             )}
           </div>
 
-          {orders.length === 0 ? (
+          {error ? (
+            <div className="bg-red-50 dark:bg-red-900/20 p-8 rounded-xl border border-red-100 dark:border-red-900/40 text-center text-red-700 dark:text-red-400">
+              <p>No pudimos cargar tus compras.</p>
+              <p className="mt-2 text-sm font-mono break-words">{error}</p>
+            </div>
+          ) : orders.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 text-center">
               <p className="text-gray-500 dark:text-gray-400">Todavía no hiciste ninguna compra.</p>
             </div>
